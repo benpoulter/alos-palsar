@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Congo Basin flooded-forest explorer, 2015–2025</title>
+<meta name="description" content="Interactive explorer for ALOS-2 PALSAR-2 forested wetland inundation maps of the central Congo Basin, 2015–2025, streaming 100 m data from Zenodo.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#e9eee9; --panel:#f7f9f6; --ink:#17231f; --ink-2:#4a5a54; --line:#c9d3cd; --chip:#dfe7e2;
+  --map-out:#141c19; --map-land:#24312c;
+  --s1:#d6336c; --s2:#c76b00; --s3:#6f4bd8; --s4:#0f7f6f;
+  --focus:#d6336c;
+  color-scheme:light;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1513; --panel:#16201c; --ink:#e3ebe6; --ink-2:#9db0a8; --line:#2c3a35; --chip:#22302b;
+    --s1:#ff6fa3; --s2:#ffb054; --s3:#b39bff; --s4:#5fd6c2; --focus:#ff6fa3; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1513; --panel:#16201c; --ink:#e3ebe6; --ink-2:#9db0a8; --line:#2c3a35; --chip:#22302b;
+  --s1:#ff6fa3; --s2:#ffb054; --s3:#b39bff; --s4:#5fd6c2; --focus:#ff6fa3; color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.app{display:grid;grid-template-columns:minmax(0,1fr) minmax(340px,440px);gap:0;min-height:100vh}
+@media (max-width:900px){.app{grid-template-columns:1fr}}
+.mapcol{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)}
+header{padding:18px 20px 10px}
+h1{font-size:1.35rem;line-height:1.2;margin:0 0 4px;font-weight:700;letter-spacing:-.01em}
+.sub{margin:0;color:var(--ink-2);font-size:.9rem;max-width:72ch}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:6px 20px 12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;background:none;padding:6px 11px;cursor:pointer;font-size:.88rem}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.lbl{font-size:.82rem;color:var(--ink-2);margin-right:4px}
+.chk{font-size:.86rem;display:inline-flex;gap:5px;align-items:center;cursor:pointer}
+.mapwrap{position:relative;flex:1;min-height:420px;background:var(--map-out);overflow:hidden;touch-action:none;margin:0 20px;border-radius:10px}
+@media (max-width:900px){.mapwrap{min-height:58vh}}
+canvas#map{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+.readout{position:absolute;left:10px;bottom:10px;background:rgba(10,16,14,.82);color:#e8f0ec;font-size:.8rem;padding:6px 9px;border-radius:6px;pointer-events:none;max-width:calc(100% - 20px)}
+.legend{position:absolute;right:10px;top:10px;background:rgba(10,16,14,.82);color:#e8f0ec;font-size:.76rem;padding:8px 10px;border-radius:6px;width:190px}
+.legend .bar{height:10px;border-radius:2px;margin:5px 0 3px}
+.legend .ticks{display:flex;justify-content:space-between;opacity:.85}
+.zoombtns{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;gap:4px}
+.zoombtns button{width:32px;height:32px;border-radius:6px;border:0;background:rgba(10,16,14,.82);color:#e8f0ec;cursor:pointer;font-size:1.05rem}
+.hint{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:rgba(10,16,14,.82);color:#e8f0ec;font-size:.8rem;padding:5px 10px;border-radius:6px;pointer-events:none;white-space:nowrap}
+.time{padding:12px 20px 18px}
+.timehead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.timehead strong{font-size:1rem}
+.timehead span{color:var(--ink-2);font-size:.86rem}
+.timerow{display:flex;gap:10px;align-items:center;margin-top:6px}
+.timerow button{border:1px solid var(--line);background:var(--panel);border-radius:8px;width:36px;height:32px;cursor:pointer}
+input[type=range]{flex:1;accent-color:var(--focus)}
+.years{display:flex;justify-content:space-between;font-size:.72rem;color:var(--ink-2);margin:2px 46px 0 46px}
+aside{background:var(--panel);padding:18px 20px 24px;display:flex;flex-direction:column;gap:14px;min-width:0}
+aside h2{font-size:1rem;margin:0}
+.empty{color:var(--ink-2);font-size:.9rem;border:1px dashed var(--line);border-radius:10px;padding:14px}
+.sels{display:flex;flex-direction:column;gap:6px}
+.sel{display:grid;grid-template-columns:12px 1fr auto;gap:8px;align-items:start;font-size:.86rem;padding:8px 10px;border-radius:8px;background:var(--chip)}
+.sel .sw{width:12px;height:12px;border-radius:3px;margin-top:3px}
+.sel .t{font-weight:600}
+.sel .m{color:var(--ink-2);font-size:.8rem}
+.sel button{border:0;background:none;cursor:pointer;color:var(--ink-2);font-size:1rem;line-height:1;padding:2px 4px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.chart{position:relative;width:100%}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart text{fill:var(--ink-2);font-size:11px}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:.78rem;padding:6px 8px;border-radius:6px;white-space:nowrap;transform:translate(-50%,-110%);z-index:3}
+table.stats{width:100%;border-collapse:collapse;font-size:.82rem}
+table.stats th,table.stats td{text-align:right;padding:5px 4px;border-bottom:1px solid var(--line)}
+table.stats th:first-child,table.stats td:first-child{text-align:left}
+table.stats th{font-weight:600;color:var(--ink-2)}
+.wrapx{overflow-x:auto}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.actions button{border:1px solid var(--line);background:none;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:.85rem}
+textarea.csv{width:100%;height:140px;font-size:.75rem;font-family:ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+.notes{font-size:.8rem;color:var(--ink-2);line-height:1.5}
+.notes p{margin:0 0 6px}
+.notes a{color:inherit}
+.loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:10;flex-direction:column;gap:10px;font-size:.95rem;color:var(--ink-2)}
+.loading .pbar{width:220px;height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+.loading .pbar i{display:block;height:100%;width:0;background:var(--focus);transition:width .2s}
+.net{font-size:.8rem;color:var(--ink-2);display:flex;flex-direction:column;gap:2px;border-left:3px solid var(--line);padding:2px 0 2px 9px}
+.net b{color:var(--ink);font-weight:600}
+.sel .prog{height:3px;background:var(--line);border-radius:2px;margin-top:5px;overflow:hidden}
+.sel .prog i{display:block;height:100%;background:currentColor;width:0}
+.res{display:inline-block;font-size:.72rem;padding:0 6px;border-radius:9px;border:1px solid var(--line);margin-left:6px;font-weight:500;color:var(--ink-2)}
+.cal{margin-top:14px}
+.cal h3{font-size:.88rem;margin:0 0 6px}
+.cal svg{display:block;width:100%;max-width:300px;height:auto}
+.cal text{fill:var(--ink-2);font-size:10px}
+.callegend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:.75rem;color:var(--ink-2);margin-top:6px}
+.callegend span{display:inline-flex;align-items:center;gap:4px}
+.callegend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+</style>
+</head>
+<body>
+<div class="loading" id="loading"><div id="loadmsg">Loading the 2 km overview (11 MB)…</div><div class="pbar"><i id="pbar"></i></div></div>
+<div class="app">
+  <div class="mapcol">
+    <header>
+      <h1>Flooded forests of the central Congo Basin, 2015–2025</h1>
+      <p class="sub">Each frame is one ALOS-2 PALSAR-2 radar pass showing where forest stood in water. Zoom in to stream the original 100 m maps straight from Zenodo; click a spot or draw a region for exact 11-year flood histories.</p>
+    </header>
+    <div class="toolbar">
+      <span><span class="lbl">Show</span><span class="seg" id="layerSeg"><button aria-pressed="true" data-v="cycle">Selected date</button><button aria-pressed="false" data-v="dur">Duration 2015–2025</button></span></span>
+      <span><span class="lbl">Tool</span><span class="seg" id="toolSeg"><button aria-pressed="true" data-v="cell">Click a spot</button><button aria-pressed="false" data-v="rect">Draw a region</button></span></span>
+      <span id="hiresCtl"><span class="lbl">100 m pixels show</span><span class="seg" id="modeSeg"><button aria-pressed="true" data-v="class">Class</button><button aria-pressed="false" data-v="prov">How mapped</button></span></span>
+      <label class="chk"><input type="checkbox" id="chkBorders" checked> Borders</label>
+      <label class="chk"><input type="checkbox" id="chkRivers"> Rivers</label>
+    </div>
+    <div class="mapwrap" id="mapwrap">
+      <canvas id="map" aria-label="Map of inundated forest. Use the tool buttons to select a cell or region."></canvas>
+      <div class="hint" id="hint" hidden>Drag to draw a region</div>
+      <div class="legend" id="legend"></div>
+      <div class="readout" id="readout">Scroll or pinch to zoom, drag to pan</div>
+      <div class="zoombtns"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zhome" aria-label="Reset view">⌂</button></div>
+    </div>
+    <div class="time">
+      <div class="timehead"><strong id="tLabel">—</strong><span id="tSub">—</span></div>
+      <div class="timerow">
+        <button id="play" aria-label="Play">▶</button>
+        <input type="range" id="slider" min="0" max="98" value="0" aria-label="Observation date">
+        <button id="step" aria-label="Next date">›</button>
+      </div>
+      <div class="years" id="years"></div>
+    </div>
+  </div>
+  <aside>
+    <div class="net" id="net"><span id="netMode">Overview from 2 km summary</span><span id="netRate">Zenodo requests: none yet</span></div>
+    <h2>Selections</h2>
+    <div class="sels" id="sels"></div>
+    <div class="empty" id="empty">Nothing selected yet. Choose “Click a spot” and tap the map, or “Draw a region” and drag a box. Spots and regions up to about 300 km across are computed exactly from the 100 m maps; bigger regions use the 2 km summary. Compare up to four at once.</div>
+    <div id="results" hidden>
+      <div class="toolbar" style="padding:0 0 10px">
+        <span class="seg" id="viewSeg"><button aria-pressed="true" data-v="ts">Every pass</button><button aria-pressed="false" data-v="yr">Yearly mean</button><button aria-pressed="false" data-v="se">Seasonal cycle</button></span>
+        <span class="seg" id="unitSeg"><button aria-pressed="true" data-v="km">km²</button><button aria-pressed="false" data-v="pct">% of box</button></span>
+      </div>
+      <div class="chart" id="chart"></div>
+      <div class="wrapx" style="margin-top:12px"><table class="stats" id="stats"></table></div>
+      <div class="actions" style="margin-top:12px"><button id="copyCsv">Copy series as CSV</button><button id="clearAll">Clear selections</button></div>
+      <textarea class="csv" id="csvBox" hidden readonly></textarea>
+      <div class="cal" id="cal" hidden></div>
+    </div>
+    <div class="notes">
+      <p><strong>Reading the numbers.</strong> Selections marked 100 m are counted pixel by pixel from the original maps; those marked 2 km use a summary grid (regional totals within 0.1%, single cells ±2%). The radar misses roughly 40% of flooded forest under dense canopy (South America validation), so treat areas as minimums. Central Africa has not yet been validated separately.</p>
+      <p><strong>Trend</strong> is the Theil–Sen slope of yearly means, with a Mann–Kendall test (p &lt; 0.05 means the direction is unlikely to be chance). <strong>Gap-filled</strong> is the share of flooded area that was filled in from neighbouring dates or a hydrological proxy rather than seen directly.</p>
+      <p>Source: Rosenqvist et al. (2026), <a href="https://doi.org/10.5281/zenodo.22981938" target="_blank" rel="noopener">doi:10.5281/zenodo.22981938</a>, CC-BY 4.0. ALOS-2 data © JAXA/EORC. Borders: Natural Earth.</p>
+    </div>
+  </aside>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
