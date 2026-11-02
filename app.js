@@ -1,5 +1,5 @@
-/* Congo Basin flooded-forest explorer
-   Overview: 2 km summary cube (data/*.bin, gzip).
+/* Flooded-forest explorer (ALOS-2 PALSAR-2, 2015–2025): Central Africa and South America.
+   Overview: coarse summary cube per region (data/<region>/*.bin, gzip).
    Detail: original 100 m GeoTIFF tiles read straight out of the Zenodo zips with HTTP range requests.
    Data: Rosenqvist et al. (2026) doi:10.5281/zenodo.22981938, CC-BY 4.0. ALOS-2 data (c) JAXA/EORC. */
 (async function(){
@@ -10,21 +10,29 @@ const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov',
 const KM=111.32;
 
 // ============ load overview data ============
-let loaded=0;const TOTAL_LOAD=6;
+let loaded=0;const TOTAL_LOAD=7;
 const tick=()=>{loaded++;$('pbar').style.width=(100*loaded/TOTAL_LOAD)+'%';};
 async function getJSON(u){const r=await fetch(u);if(!r.ok)throw new Error(u+' '+r.status);tick();return r.json();}
 async function getGz(u){const r=await fetch(u);if(!r.ok)throw new Error(u+' '+r.status);
   const buf=new Uint8Array(await r.arrayBuffer());tick();
   if(buf[0]!==0x1f||buf[1]!==0x8b)return buf; // already decoded by the server
   const out=await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();return new Uint8Array(out);}
-let META,VEC,IV,GF,DOMB,BG,TI,IDX;
+let META,VEC,IV,GF,DOMB,BG,TI,IDX,REGIONS,REGION;
 try{
-  [META,VEC,TI]=await Promise.all([getJSON('data/cube_meta.json'),getJSON('data/context.json'),getJSON('data/tile_index.json')]);
-  const ir=await fetch('data/tile_index.bin');IDX=new Uint32Array(await ir.arrayBuffer());
-  [IV,GF,DOMB,BG]=await Promise.all([getGz('data/cube_2km.bin'),getGz('data/gapfill_4km.bin'),getGz('data/domain_2km.bin'),getGz('data/duration_400m.bin')]);
+  REGIONS=await (await fetch('data/regions.json')).json();
+  const want=new URLSearchParams(location.search).get('region');REGION=REGIONS.some(r=>r.id===want)?want:REGIONS[0].id;
+  const BASE='data/'+REGION+'/';
+  $('loadmsg').textContent=`Loading the ${REGIONS.find(r=>r.id===REGION).name} overview…`;
+  [META,VEC,TI]=await Promise.all([getJSON(BASE+'cube_meta.json'),getJSON(BASE+'context.json'),getJSON(BASE+'tile_index.json')]);
+  if(TI.format==='counts'){ // gzip uint32 tile byte counts; offsets rebuilt from each file's first tile + fixed inter-tile gap
+    const cnt=new Uint32Array((await getGz(BASE+'tile_index.bin')).buffer),n=TI.first.length*TI.ntiles;IDX=new Uint32Array(2*n);
+    for(let t=0;t<TI.first.length;t++){let o=TI.first[t];for(let k=0;k<TI.ntiles;k++){const i=t*TI.ntiles+k;IDX[i]=o;IDX[n+i]=cnt[i];o+=cnt[i]+TI.gap;}}
+  }else{const ir=await fetch(BASE+'tile_index.bin');IDX=new Uint32Array(await ir.arrayBuffer());tick();}
+  [IV,GF,DOMB,BG]=await Promise.all([getGz(BASE+'cube.bin'),getGz(BASE+'gapfill.bin'),getGz(BASE+'domain.bin'),getGz(BASE+'duration.bin')]);
 }catch(e){$('loadmsg').textContent='Could not load the data files ('+e.message+'). If you opened index.html straight from disk, serve the folder instead, for example with “python -m http.server”.';return;}
 
 const T=META.cycles.length,W=META.w,H=META.h,DX=META.dx,LON0=META.lon0,LAT0=META.lat0;
+const CF=META.cubeF,CKM=META.cellKm+' km',GKM=META.gfKm+' km',BGM=META.bgM+' m',BOUNDS=META.bounds;
 const W4=META.w4,H4=META.h4,DX4=META.dx4,BGW=META.bgw,BGH=META.bgh,BG_EXT=META.bgext;
 const inDomain=(x,y)=>{const i=y*W+x;return (DOMB[i>>3]>>(7-(i&7)))&1;};
 const cellArea=new Float64Array(H),cellArea4=new Float64Array(H4);
@@ -39,10 +47,11 @@ const zipUrl=y=>TI.zipUrl.replace('{year}',y);
 
 const cyc=META.cycles.map((c,i)=>{const p=s=>new Date(Date.UTC(+s.slice(0,4),+s.slice(4,6)-1,+s.slice(6,8)));
   const sd=p(c.start),ed=p(c.end),mid=new Date((sd.getTime()+ed.getTime())/2);
-  return {i,cycle:c.cycle,year:2015+Math.floor(i/9),k:i%9,sd,ed,mid,dec:mid.getUTCFullYear()+(mid.getUTCMonth()+mid.getUTCDate()/31)/12};});
+  return {i,cycle:c.cycle,cycle2:c.cycle2||c.cycle,year:2015+Math.floor(i/9),k:i%9,sd,ed,mid,dec:mid.getUTCFullYear()+(mid.getUTCMonth()+mid.getUTCDate()/31)/12};});
 const fmtD=d=>d.getUTCDate()+' '+MONTHS[d.getUTCMonth()]+' '+d.getUTCFullYear();
 const fmtRange=c=>{const a=c.sd,b=c.ed;return (a.getUTCMonth()===b.getUTCMonth()&&a.getUTCFullYear()===b.getUTCFullYear())?a.getUTCDate()+'–'+b.getUTCDate()+' '+MONTHS[b.getUTCMonth()]+' '+b.getUTCFullYear():fmtD(a)+' – '+fmtD(b);};
 const fmtLat=v=>`${Math.abs(v).toFixed(3)}°${v>=0?'N':'S'}`;
+const fmtLon=(v,d=3)=>`${Math.abs(v).toFixed(d)}°${v>=0?'E':'W'}`;
 
 // ============ Zenodo range-request engine ============
 const rate={remaining:null,limit:133,reset:0,bytes:0,requests:0,active:0};
@@ -137,14 +146,14 @@ const durC=document.createElement('canvas');durC.width=BGW;durC.height=BGH;
 
 // ============ map ============
 const cv=$('map'),ctx=cv.getContext('2d'),wrap=$('mapwrap');
-let view={k:40,cx:17.5,cy:-.5},layer='cycle',tool='cell',cur=0,showBorders=true,showRivers=false,mode='class',playing=false;
+let view={k:40,cx:(BOUNDS[0]+BOUNDS[1])/2,cy:(BOUNDS[2]+BOUNDS[3])/2},layer='cycle',tool='cell',cur=0,showBorders=true,showRivers=false,mode='class',playing=false;
 let dpr=1,cw=0,ch=0;
 const HIRES_K=560; // px per degree where a 100 m pixel is ~0.5 screen px
-function fitView(){view.k=Math.min(wrap.clientWidth/19.2,wrap.clientHeight/11.2);view.cx=17.5;view.cy=-.5;}
+function fitView(){view.k=Math.min(wrap.clientWidth/((BOUNDS[1]-BOUNDS[0])*1.01),wrap.clientHeight/((BOUNDS[3]-BOUNDS[2])*1.01));view.cx=(BOUNDS[0]+BOUNDS[1])/2;view.cy=(BOUNDS[2]+BOUNDS[3])/2;}
 function resize(){dpr=window.devicePixelRatio||1;cw=wrap.clientWidth;ch=wrap.clientHeight;cv.width=Math.round(cw*dpr);cv.height=Math.round(ch*dpr);draw();}
 const toScr=(lon,lat)=>[(lon-view.cx)*view.k+cw/2,(view.cy-lat)*view.k+ch/2];
 const toGeo=(sx,sy)=>[(sx-cw/2)/view.k+view.cx,view.cy-(sy-ch/2)/view.k];
-const CITIES=[['Kinshasa',15.31,-4.32],['Brazzaville',15.24,-4.27],['Mbandaka',18.26,.05],['Kisangani',25.19,.52],['Bangui',18.56,4.36],['Libreville',9.45,.39],['Yaoundé',11.52,3.87],['Lambaréné',10.24,-.70],['Ouesso',16.05,1.61],['Lisala',21.51,2.15]];
+const CITIES=META.cities||[];
 const hiresOn=()=>layer==='cycle'&&view.k>=HIRES_K;
 function visibleTiles(){const [lo0,la1]=toGeo(0,0),[lo1,la0]=toGeo(cw,ch);
   const tx0=Math.max(0,Math.floor((lo0-LON0)/PX/TS)),tx1=Math.min(TA-1,Math.floor((lo1-LON0)/PX/TS)),ty0=Math.max(0,Math.floor((LAT0-la1)/PX/TS)),ty1=Math.min(TD-1,Math.floor((LAT0-la0)/PX/TS));
@@ -169,7 +178,7 @@ async function loadHires(){if(!hiresOn()){updateNetMode();return;}const vis=visi
   try{await fetchTiles(need.map(k=>[t,k]),async m=>{for(const [key,b] of m){const d=await decodeTile(b);dput(key,d);}if(gen===hiresGen||t===cur)draw();});}
   catch(e){$('netMode').textContent='Could not stream 100 m tiles: '+e.message;return;}
   updateNetMode(0);}
-function updateNetMode(pending){if(!hiresOn()){$('netMode').textContent=layer==='cycle'?'Overview from 2 km summary. Zoom in to stream 100 m pixels.':'Duration layer (400 m). Switch to “Selected date” and zoom in for 100 m pixels.';return;}
+function updateNetMode(pending){if(!hiresOn()){$('netMode').textContent=layer==='cycle'?`Overview from ${CKM} summary. Zoom in to stream 100 m pixels.`:`Duration layer (${BGM}). Switch to “Selected date” and zoom in for 100 m pixels.`;return;}
   $('netMode').textContent=pending?`Streaming ${pending} 100 m tile${pending>1?'s':''} for this date from Zenodo…`:'Showing original 100 m pixels for this date';}
 let rafPending=false;
 function draw(){if(rafPending)return;rafPending=true;requestAnimationFrame(()=>{rafPending=false;drawNow();});}
@@ -185,7 +194,7 @@ function drawNow(){
   if(showRivers)path(VEC.rivers,'rgba(120,190,255,.55)',1);
   if(showBorders)path(VEC.borders,'rgba(235,240,236,.45)',1);
   ctx.font='500 11px "Public Sans",system-ui,sans-serif';ctx.textBaseline='middle';
-  for(const [n,lo,la] of CITIES){const [x,y]=toScr(lo,la);if(x<-50||y<-20||x>cw+50||y>ch+20)continue;if(n==='Brazzaville'&&view.k<120)continue;
+  for(const [n,lo,la,minK] of CITIES){const [x,y]=toScr(lo,la);if(x<-50||y<-20||x>cw+50||y>ch+20)continue;if(view.k<(minK||0))continue;
     ctx.fillStyle='rgba(240,244,241,.9)';ctx.beginPath();ctx.arc(x,y,2.4,0,7);ctx.fill();ctx.lineWidth=3;ctx.strokeStyle='rgba(10,16,14,.75)';ctx.strokeText(n,x+5,y);ctx.fillText(n,x+5,y);}
   sels.forEach(s=>{const col=MAPCOL[s.pal];const [x0,y0]=toScr(LON0+s.px0*PX,LAT0-s.py0*PX),[x1,y1]=toScr(LON0+(s.px1+1)*PX,LAT0-(s.py1+1)*PX);
     const ww=Math.max(x1-x0,8),hh=Math.max(y1-y0,8),cx=(x0+x1)/2,cy=(y0+y1)/2;ctx.strokeStyle=col;ctx.lineWidth=2;ctx.strokeRect(cx-ww/2,cy-hh/2,ww,hh);
@@ -214,12 +223,12 @@ const endPtr=e=>{ptrs.delete(e.pointerId);if(ptrs.size<2)pinch=null;
     draw();}};
 cv.addEventListener('pointerup',endPtr);cv.addEventListener('pointercancel',endPtr);
 cv.addEventListener('pointerleave',()=>{$('readout').textContent='Scroll or pinch to zoom, drag to pan';});
-function hover(sx,sy){const [lo,la]=toGeo(sx,sy);let s=`${fmtLat(la)}, ${lo.toFixed(3)}°E`;
+function hover(sx,sy){const [lo,la]=toGeo(sx,sy);let s=`${fmtLat(la)}, ${fmtLon(lo)}`;
   const gx=Math.floor((lo-LON0)/DX),gy=Math.floor((LAT0-la)/DX),px=Math.floor((lo-LON0)/PX),py=Math.floor((LAT0-la)/PX);
   if(layer==='cycle'){
     const dat=(px>=0&&px<PW&&py>=0&&py<PH)?dcache.get(cur+':'+tileOf(px,py)):null;
     if(hiresOn()&&dat){const i=((py%TS)*TS+(px%TS))*2,cl=dat[i];if(cl){s+=' — 100 m pixel: '+CLASS[cl].n.toLowerCase();if(cl===1)s+=' ('+PROV[provKind(dat[i+1])].n.toLowerCase()+')';}}
-    else if(gx>=0&&gx<W&&gy>=0&&gy<H)s+=inDomain(gx,gy)?` — ${IV[(gy*W+gx)*T+cur]*2}% of 2 km cell flooded`:' — outside mapped forest';}
+    else if(gx>=0&&gx<W&&gy>=0&&gy<H)s+=inDomain(gx,gy)?` — ${IV[(gy*W+gx)*T+cur]*2}% of ${CKM} cell flooded`:' — outside mapped forest';}
   else{const bx=Math.floor((lo-BG_EXT[0])/((BG_EXT[1]-BG_EXT[0])/BGW)),by=Math.floor((BG_EXT[3]-la)/((BG_EXT[3]-BG_EXT[2])/BGH));
     if(bx>=0&&bx<BGW&&by>=0&&by<BGH&&gx>=0&&gx<W&&gy>=0&&gy<H&&inDomain(gx,gy)){const v=BG[by*BGW+bx];s+=v>0?` — flooded in ${v} of 99 passes`:' — not flooded in any pass';}}
   $('readout').textContent=s;}
@@ -228,11 +237,11 @@ function hover(sx,sy){const [lo,la]=toGeo(sx,sy);let s=`${fmtLat(la)}, ${lo.toFi
 function legend(){const el=$('legend');
   if(hiresOn()){const items=mode==='class'?[1,2,3,7,4,5,8].map(c=>[CLASS[c].c,CLASS[c].n]):[['obs'],['tmp'],['hyd']].map(([k])=>[PROV[k].c,PROV[k].n]).concat([[CLASS[2].c,'Open water'],[CLASS[4].c,'Not flooded']]);
     el.innerHTML='<div>100 m pixels from Zenodo</div>'+items.map(([c,n])=>`<div style="display:flex;gap:6px;align-items:center;margin-top:3px"><i style="width:10px;height:10px;border-radius:2px;background:${c};outline:1px solid rgba(255,255,255,.25)"></i>${n}</div>`).join('');return;}
-  el.innerHTML=layer==='cycle'?`<div>Share of 2 km cell flooded</div><div class="bar" style="background:${cssGrad}"></div><div class="ticks"><span>2%</span><span>40%</span><span>80%+</span></div>`
-   :`<div>Passes flooded, of 99 (400 m)</div><div class="bar" style="background:${cssGrad}"></div><div class="ticks"><span>4</span><span>50</span><span>99</span></div>`;}
+  el.innerHTML=layer==='cycle'?`<div>Share of ${CKM} cell flooded</div><div class="bar" style="background:${cssGrad}"></div><div class="ticks"><span>2%</span><span>40%</span><span>80%+</span></div>`
+   :`<div>Passes flooded, of 99 (${BGM})</div><div class="bar" style="background:${cssGrad}"></div><div class="ticks"><span>4</span><span>50</span><span>99</span></div>`;}
 const slider=$('slider');const domSeries=new Float64Array(T);
 function setCycle(t){cur=Math.max(0,Math.min(T-1,t));slider.value=cur;const c=cyc[cur];
-  $('tLabel').textContent=fmtRange(c);$('tSub').textContent=`ALOS-2 cycle ${c.cycle}, pass ${c.k+1} of 9 in ${c.year} — ${Math.round(domSeries[cur]).toLocaleString()} km² flooded across the map`;
+  $('tLabel').textContent=fmtRange(c);$('tSub').textContent=`ALOS-2 ${c.cycle2!==c.cycle?`cycles ${c.cycle}–${c.cycle2}`:`cycle ${c.cycle}`}, pass ${c.k+1} of 9 in ${c.year} — ${Math.round(domSeries[cur]).toLocaleString()} km² flooded across the map`;
   if(layer==='cycle'){renderFrame(cur);draw();if(hiresOn())requestHires();}if(sels.length)drawChart();}
 slider.oninput=()=>{stop();setCycle(+slider.value);};
 $('step').onclick=()=>{stop();setCycle((cur+1)%T);};
@@ -255,9 +264,9 @@ let sels=[],selCounter=0;const PAL=['--s1','--s2','--s3','--s4'],MAPCOL=['#ff6fa
 const selColor=s=>getComputedStyle(document.documentElement).getPropertyValue(PAL[s.pal]).trim();
 const MAX_TILES=40;
 function boxArea(py0,py1,px0,px1){let a=0;for(let r=py0;r<=py1;r++)a+=pxArea(r);return a*(px1-px0+1);}
-function cubeSeries(px0,px1,py0,py1){ // 2 km estimate for a 100 m pixel box (cells whose centres fall inside, or the containing cell for small boxes)
-  let x0=Math.round(px0/20),x1=Math.round((px1+1)/20)-1,y0=Math.round(py0/20),y1=Math.round((py1+1)/20)-1,scale=1;
-  if(x1<x0||y1<y0){x0=x1=Math.floor((px0+px1)/40);y0=y1=Math.floor((py0+py1)/40);scale=boxArea(py0,py1,px0,px1)/cellArea[y0];}
+function cubeSeries(px0,px1,py0,py1){ // coarse-cube estimate for a 100 m pixel box (cells whose centres fall inside, or the containing cell for small boxes)
+  let x0=Math.round(px0/CF),x1=Math.round((px1+1)/CF)-1,y0=Math.round(py0/CF),y1=Math.round((py1+1)/CF)-1,scale=1;
+  if(x1<x0||y1<y0){x0=x1=Math.floor((px0+px1)/(2*CF));y0=y1=Math.floor((py0+py1)/(2*CF));scale=boxArea(py0,py1,px0,px1)/cellArea[y0];}
   x0=Math.max(0,x0);y0=Math.max(0,y0);x1=Math.min(W-1,x1);y1=Math.min(H-1,y1);
   const iv=new Float64Array(T),gf=new Float64Array(T),iv4=new Float64Array(T);
   for(let y=y0;y<=y1;y++){const ca=cellArea[y]*.02*scale;for(let x=x0;x<=x1;x++){const b=(y*W+x)*T;for(let t=0;t<T;t++){const v=IV[b+t];if(v)iv[t]+=v*ca;}}}
@@ -267,7 +276,7 @@ function cubeSeries(px0,px1,py0,py1){ // 2 km estimate for a 100 m pixel box (ce
 function tilesFor(s){const out=[];for(let ty=Math.floor(s.py0/TS);ty<=Math.floor(s.py1/TS);ty++)for(let tx=Math.floor(s.px0/TS);tx<=Math.floor(s.px1/TS);tx++)out.push(ty*TA+tx);return out;}
 async function refine(s){ // exact 100 m counts streamed from Zenodo
   const tiles=tilesFor(s);s.tiles=tiles.length;
-  if(tiles.length>MAX_TILES){s.status=`Too big to stream at 100 m (${tiles.length} tiles, limit ${MAX_TILES}); using 2 km summary`;refreshSels();return;}
+  if(tiles.length>MAX_TILES){s.status=`Too big to stream at 100 m (${tiles.length} tiles, limit ${MAX_TILES}); using ${CKM} summary`;refreshSels();return;}
   const iv=new Float64Array(T),gf=new Float64Array(T),cls=s.type==='cell'?new Uint8Array(T):null,prov=s.type==='cell'?new Uint8Array(T):null;
   const doneYears=new Set();let doneTiles=0;const totalTiles=tiles.length*T;s.status='Streaming 100 m tiles from Zenodo…';s.progress=0;refreshSels();
   const list=[];for(let t=0;t<T;t++)for(const k of tiles)list.push([t,k]);
@@ -282,20 +291,20 @@ async function refine(s){ // exact 100 m counts streamed from Zenodo
         if(cls&&k===tileOf(s.pix[0],s.pix[1])){const i=((s.pix[1]-oy)*TS+(s.pix[0]-ox))*2;cls[t]=dat[i];prov[t]=dat[i+1];}
         doneTiles++;}
       s.progress=doneTiles/totalTiles;refreshSelProgress(s);},{cache:tiles.length<=4});
-  }catch(e){s.status='Streaming failed ('+e.message+'); showing 2 km summary';refreshSels();return;}
+  }catch(e){s.status='Streaming failed ('+e.message+'); showing '+CKM+' summary';refreshSels();return;}
   if(!sels.includes(s))return;
   s.iv=iv;s.gshare=iv.map((v,t)=>v>0?gf[t]/v:0);s.res='100 m';s.status='';s.cls=cls;s.prov=prov;s.progress=1;refreshSels();}
 function freeSlot(){const used=new Set(sels.map(s=>s.pal));for(let i=0;i<4;i++)if(!used.has(i))return i;return null;}
 function pushSel(s){let p=freeSlot();if(p===null){sels.shift();p=freeSlot();}s.pal=p;s.label=String.fromCharCode(65+(selCounter++%26));
-  s.area=boxArea(s.py0,s.py1,s.px0,s.px1);Object.assign(s,cubeSeries(s.px0,s.px1,s.py0,s.py1));s.res='2 km';sels.push(s);refreshSels();refine(s);}
+  s.area=boxArea(s.py0,s.py1,s.px0,s.px1);Object.assign(s,cubeSeries(s.px0,s.px1,s.py0,s.py1));s.res=CKM;sels.push(s);refreshSels();refine(s);}
 function addCell(lo,la){const px=Math.floor((lo-LON0)/PX),py=Math.floor((LAT0-la)/PX);if(px<0||px>=PW||py<0||py>=PH)return;
-  const gx=Math.floor(px/20),gy=Math.floor(py/20);if(!inDomain(gx,gy)){$('readout').textContent='That spot is outside the mapped forest — try one along a river or swamp.';return;}
+  const gx=Math.floor(px/CF),gy=Math.floor(py/CF);if(!inDomain(gx,gy)){$('readout').textContent='That spot is outside the mapped forest — try one along a river or swamp.';return;}
   const bx=Math.floor(px/10)*10,by=Math.floor(py/10)*10;
   pushSel({type:'cell',pix:[px,py],px0:bx,px1:Math.min(PW-1,bx+9),py0:by,py1:Math.min(PH-1,by+9),
-    name:`Spot at ${fmtLat(LAT0-(py+.5)*PX)}, ${(LON0+(px+.5)*PX).toFixed(3)}°E (1 km block)`});}
+    name:`Spot at ${fmtLat(LAT0-(py+.5)*PX)}, ${fmtLon(LON0+(px+.5)*PX)} (1 km block)`});}
 function addRect(lo0,lo1,la0,la1){let px0=Math.max(0,Math.floor((lo0-LON0)/PX)),px1=Math.min(PW-1,Math.floor((lo1-LON0)/PX)),py0=Math.max(0,Math.floor((LAT0-la1)/PX)),py1=Math.min(PH-1,Math.floor((LAT0-la0)/PX));
   if(px1-px0<2||py1-py0<2)return;const fl=v=>`${Math.abs(v).toFixed(2)}°${v>=0?'N':'S'}`;
-  pushSel({type:'rect',px0,px1,py0,py1,name:`Region ${(LON0+px0*PX).toFixed(2)}–${(LON0+(px1+1)*PX).toFixed(2)}°E, ${fl(LAT0-(py1+1)*PX)} to ${fl(LAT0-py0*PX)}`});}
+  pushSel({type:'rect',px0,px1,py0,py1,name:`Region ${fmtLon(LON0+px0*PX,2)} to ${fmtLon(LON0+(px1+1)*PX,2)}, ${fl(LAT0-(py1+1)*PX)} to ${fl(LAT0-py0*PX)}`});}
 function refreshSelProgress(s){const el=document.querySelector(`[data-sel="${s.label}"] .prog i`);if(el)el.style.width=(100*s.progress)+'%';}
 function refreshSels(){const box=$('sels');box.innerHTML='';
   sels.forEach((s,i)=>{const d=document.createElement('div');d.className='sel';d.dataset.sel=s.label;
@@ -303,7 +312,7 @@ function refreshSels(){const box=$('sels');box.innerHTML='';
     const tx=document.createElement('div');const t1=document.createElement('div');t1.className='t';t1.textContent=`${s.label}. ${s.name}`;
     const badge=document.createElement('span');badge.className='res';badge.textContent=s.res;t1.append(badge);
     const t2=document.createElement('div');t2.className='m';t2.textContent=s.status||`${s.area<10?s.area.toFixed(2):Math.round(s.area).toLocaleString()} km² box`;tx.append(t1,t2);
-    if(s.res==='2 km'&&s.progress!==undefined&&s.progress<1&&!/failed|Too big/.test(s.status||'')){const p=document.createElement('div');p.className='prog';p.style.color=selColor(s);p.innerHTML='<i></i>';p.firstChild.style.width=(100*s.progress)+'%';tx.append(p);}
+    if(s.res===CKM&&s.progress!==undefined&&s.progress<1&&!/failed|Too big/.test(s.status||'')){const p=document.createElement('div');p.className='prog';p.style.color=selColor(s);p.innerHTML='<i></i>';p.firstChild.style.width=(100*s.progress)+'%';tx.append(p);}
     const b=document.createElement('button');b.setAttribute('aria-label','Remove selection '+s.label);b.textContent='×';b.onclick=()=>{sels.splice(i,1);refreshSels();draw();};
     d.append(sw,tx,b);box.append(d);});
   $('empty').hidden=sels.length>0;$('results').hidden=sels.length===0;$('csvBox').hidden=true;drawChart();drawCal();draw();}
@@ -336,7 +345,7 @@ function drawChart(){if(!sels.length){chartEl.innerHTML='';return;}
     if(chartView==='ts')el('line',{x1:X(y),x2:X(y),y1:m.t,y2:m.t+ph,stroke:lc,'stroke-dasharray':'2 3'});}}
   else for(let k=0;k<9;k++)el('text',{x:X(k),y:Hd-8,'text-anchor':'middle'}).textContent=MONTHS[cyc[k+45].mid.getUTCMonth()];
   if(chartView==='ts')el('line',{x1:X(cyc[cur].dec),x2:X(cyc[cur].dec),y1:m.t,y2:m.t+ph,stroke:'currentColor',opacity:.5});
-  ds.forEach(d=>{const col=selColor(d.s),dash=d.s.res==='2 km'&&d.s.progress<1?'3 2':null;
+  ds.forEach(d=>{const col=selColor(d.s),dash=d.s.res===CKM&&d.s.progress<1?'3 2':null;
     if(chartView==='se'){el('polygon',{points:d.se.map((o,k)=>`${X(k)},${Y(o.max)}`).concat(d.se.map((o,k)=>`${X(k)},${Y(o.min)}`).reverse()).join(' '),fill:col,opacity:.15});
       el('polyline',{points:d.se.map((o,k)=>`${X(k)},${Y(o.mean)}`).join(' '),fill:'none',stroke:col,'stroke-width':2});d.se.forEach((o,k)=>el('circle',{cx:X(k),cy:Y(o.mean),r:2.5,fill:col}));return;}
     const pl=el('polyline',{points:d.y.map((v,i)=>`${X(xs[i])},${Y(v)}`).join(' '),fill:'none',stroke:col,'stroke-width':chartView==='ts'?1.5:2,'stroke-linejoin':'round'});if(dash)pl.setAttribute('stroke-dasharray',dash);
@@ -375,6 +384,14 @@ $('copyCsv').onclick=async()=>{const hdr=['pass','cycle','start','end',...sels.f
   const txt=sels.map(s=>`# ${s.label}: ${s.name}; resolution ${s.res}; box ${s.area.toFixed(3)} km2; 100 m pixel cols ${s.px0}-${s.px1}, rows ${s.py0}-${s.py1}`).join('\n')+'\n# Source: Rosenqvist et al. (2026) doi:10.5281/zenodo.22981938 CC-BY 4.0\n'+rows.join('\n');
   try{await navigator.clipboard.writeText(txt);$('copyCsv').textContent='Copied';setTimeout(()=>$('copyCsv').textContent='Copy series as CSV',1600);}
   catch(e){const b=$('csvBox');b.hidden=false;b.value=txt;b.focus();b.select();$('copyCsv').textContent='Select the text below and copy';}};
+
+// ============ region switcher & text ============
+(function(){const h=document.querySelector('header');const row=document.createElement('div');row.className='regionrow';
+  const lab=document.createElement('span');lab.className='lbl';lab.textContent='Region';const sg=document.createElement('span');sg.className='seg';
+  REGIONS.forEach(r=>{const b=document.createElement('button');b.textContent=r.name;b.setAttribute('aria-pressed',r.id===REGION);
+    b.onclick=()=>{if(r.id!==REGION)location.search='?region='+r.id;};sg.append(b);});row.append(lab,sg);h.prepend(row);
+  h.querySelector('h1').textContent=META.title;document.title=META.title.replace(', 2015–2025','')+' explorer, 2015–2025';
+  document.querySelectorAll('.ckm').forEach(e=>e.textContent=CKM);document.querySelectorAll('.gkm').forEach(e=>e.textContent=GKM);})();
 
 // ============ init ============
 for(let y=0;y<H;y++){const ca=cellArea[y]*.02;for(let x=0;x<W;x++){const b=(y*W+x)*T;for(let t=0;t<T;t++){const v=IV[b+t];if(v)domSeries[t]+=v*ca;}}}

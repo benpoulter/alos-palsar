@@ -1,20 +1,20 @@
-# Congo Basin flooded-forest explorer, 2015–2025
+# Flooded-forest explorer: Congo Basin and northern South America, 2015–2025
 
 **Live site:** https://benpoulter.github.io/alos-palsar/
 
-An interactive map of seasonally flooded forest in the central Congo Basin, built on the ALOS-2 PALSAR-2 ScanSAR inundation maps of Rosenqvist et al. (2026). It runs entirely in the browser as a static site, so GitHub Pages can host it.
+An interactive map of seasonally flooded forest in the central Congo Basin and in northern South America (Amazon, Orinoco, Guiana Shield, Pantanal, and basins in Colombia, Ecuador and Peru), built on the ALOS-2 PALSAR-2 ScanSAR inundation maps of Rosenqvist et al. (2026). It runs entirely in the browser as a static site, so GitHub Pages can host it. Switch regions with the buttons at the top, or link straight to one with `?region=c-africa` or `?region=s-america`.
 
 The page works at two resolutions:
 
-- **Overview (2 km).** About 11 MB of pre-computed summaries ship in `data/`: the share of each 2 km cell that was flooded on each of the 99 radar passes, plus the 2015–2025 duration map at 400 m.
-- **Detail (100 m), streamed from Zenodo.** When you zoom in, click a spot or draw a region, the page fetches only the 512 × 512-pixel tiles it needs from the original GeoTIFFs. It reads them straight out of the yearly zip files in the Zenodo record using HTTP range requests, and nothing is re-hosted. This works because the zips store their files uncompressed (so every tile is a plain byte range), Zenodo's file API allows cross-origin range requests, and one request can carry many ranges. `data/tile_index.bin` records where every tile sits inside each zip.
+- **Overview.** Pre-computed summaries ship in `data/<region>/`: the share of each cell that was flooded on each of the 99 radar passes, plus the 2015–2025 duration map. Central Africa uses 2 km cells and a 400 m duration map (about 11 MB; regional totals within 0.1% of exact). South America, which is about 2.5 times larger, uses 4 km cells and an 800 m duration map (about 14 MB; within 0.5%).
+- **Detail (100 m), streamed from Zenodo.** When you zoom in, click a spot or draw a region, the page fetches only the 512 × 512-pixel tiles it needs from the original GeoTIFFs. It reads them straight out of the yearly zip files in the Zenodo record using HTTP range requests, and nothing is re-hosted. This works because the zips store their files uncompressed (so every tile is a plain byte range), Zenodo's file API allows cross-origin range requests, and one request can carry many ranges. `data/<region>/tile_index.*` records where every tile sits inside each zip: 103,950 tiles for Central Africa and 630,036 for South America.
 
 ## What you can do
 
 - Scrub or play through all 99 passes, and switch to the 2015–2025 flood-duration layer.
 - Zoom in to see the original 100 m classes: flooded forest, open water, submerged vegetation, exposed river banks and masks. You can also colour flooded pixels by how they were mapped: seen directly, filled from neighbouring passes, or filled from a hydrological proxy.
 - Click a spot to get the exact flooded area of the surrounding 1 km block on every pass, plus an 11 × 9 calendar of the clicked pixel's class.
-- Draw a region up to 40 tiles (about 300 × 300 km) to get exact 100 m flooded area for every pass. Larger regions fall back to the 2 km summary.
+- Draw a region up to 40 tiles (about 300 × 300 km) to get exact 100 m flooded area for every pass. Larger regions fall back to the overview summary.
 - Compare up to four selections as every-pass, yearly-mean or seasonal-cycle charts, with a Theil–Sen trend, a Mann–Kendall p-value and the gap-filled share. **Copy series as CSV** exports the numbers.
 
 ## Put it on GitHub Pages
@@ -46,16 +46,16 @@ To try it locally first, run `python -m http.server` in this folder and open htt
 
 ## Reading the numbers
 
-Flooded-forest area is the area of pixels classed as inundated vegetation (class 1), weighted by each pixel's true area at its latitude. Two points from the dataset's own assessment, which covers South America, matter:
+Flooded-forest area is the area of pixels classed as inundated vegetation (class 1), weighted by each pixel's true area at its latitude. Two points from the dataset's own assessment, which covers South America only, matter:
 
 - The radar misses about 40% of flooded forest (58.5% producer's accuracy) while rarely raising false alarms (97% user's accuracy), so areas are minimum estimates.
 - The Central Africa products have **not** yet been validated separately.
 
-The 2 km summary reproduces regional totals within 0.1% but carries about ±2% noise per cell from rounding. Every value shown with a **100 m** badge is an exact pixel count.
+The overview summaries reproduce regional totals closely but carry about ±2% noise per cell from rounding. Every value shown with a **100 m** badge is an exact pixel count.
 
 ## Rebuilding `data/`
 
-`scripts/build_data.py` downloads the record (about 1.6 GB) and regenerates every file in `data/` except `context.json`, which holds Natural Earth borders and rivers clipped to the map.
+`scripts/build_data.py` downloads the Central Africa part of the record (about 1.6 GB) and regenerates `data/c-africa/` in the original layout; move its outputs into `data/c-africa/` with the file names used there. South America (about 13 GB) was built with the same steps, except at 4 km and with a compact tile index (`format: "counts"`: gzip uint32 tile sizes, with offsets rebuilt from each file's first tile plus the constant 8-byte gap GDAL leaves between tiles). `context.json` holds Natural Earth borders and rivers clipped to each map.
 
 ## Credits and licences
 

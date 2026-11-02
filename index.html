@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Congo Basin flooded-forest explorer, 2015–2025</title>
-<meta name="description" content="Interactive explorer for ALOS-2 PALSAR-2 forested wetland inundation maps of the central Congo Basin, 2015–2025, streaming 100 m data from Zenodo.">
+<title>Flooded-forest explorer, 2015–2025</title>
+<meta name="description" content="Interactive explorer for ALOS-2 PALSAR-2 forested wetland inundation maps of the Congo Basin and northern South America, 2015–2025, streaming 100 m data from Zenodo.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -103,14 +103,15 @@ textarea.csv{width:100%;height:140px;font-size:.75rem;font-family:ui-monospace,M
 .callegend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:.75rem;color:var(--ink-2);margin-top:6px}
 .callegend span{display:inline-flex;align-items:center;gap:4px}
 .callegend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.regionrow{display:flex;align-items:center;gap:6px;margin-bottom:10px}
 </style>
 </head>
 <body>
-<div class="loading" id="loading"><div id="loadmsg">Loading the 2 km overview (11 MB)…</div><div class="pbar"><i id="pbar"></i></div></div>
+<div class="loading" id="loading"><div id="loadmsg">Loading…</div><div class="pbar"><i id="pbar"></i></div></div>
 <div class="app">
   <div class="mapcol">
     <header>
-      <h1>Flooded forests of the central Congo Basin, 2015–2025</h1>
+      <h1>Flooded forests, 2015–2025</h1>
       <p class="sub">Each frame is one ALOS-2 PALSAR-2 radar pass showing where forest stood in water. Zoom in to stream the original 100 m maps straight from Zenodo; click a spot or draw a region for exact 11-year flood histories.</p>
     </header>
     <div class="toolbar">
@@ -138,10 +139,10 @@ textarea.csv{width:100%;height:140px;font-size:.75rem;font-family:ui-monospace,M
     </div>
   </div>
   <aside>
-    <div class="net" id="net"><span id="netMode">Overview from 2 km summary</span><span id="netRate">Zenodo requests: none yet</span></div>
+    <div class="net" id="net"><span id="netMode">Overview</span><span id="netRate">Zenodo requests: none yet</span></div>
     <h2>Selections</h2>
     <div class="sels" id="sels"></div>
-    <div class="empty" id="empty">Nothing selected yet. Choose “Click a spot” and tap the map, or “Draw a region” and drag a box. Spots and regions up to about 300 km across are computed exactly from the 100 m maps; bigger regions use the 2 km summary. Compare up to four at once.</div>
+    <div class="empty" id="empty">Nothing selected yet. Choose “Click a spot” and tap the map, or “Draw a region” and drag a box. Spots and regions up to about 300 km across are computed exactly from the 100 m maps; bigger regions use the <span class="ckm">2 km</span> summary. Compare up to four at once.</div>
     <div id="results" hidden>
       <div class="toolbar" style="padding:0 0 10px">
         <span class="seg" id="viewSeg"><button aria-pressed="true" data-v="ts">Every pass</button><button aria-pressed="false" data-v="yr">Yearly mean</button><button aria-pressed="false" data-v="se">Seasonal cycle</button></span>
@@ -154,7 +155,7 @@ textarea.csv{width:100%;height:140px;font-size:.75rem;font-family:ui-monospace,M
       <div class="cal" id="cal" hidden></div>
     </div>
     <div class="notes">
-      <p><strong>Reading the numbers.</strong> Selections marked 100 m are counted pixel by pixel from the original maps; those marked 2 km use a summary grid (regional totals within 0.1%, single cells ±2%). The radar misses roughly 40% of flooded forest under dense canopy (South America validation), so treat areas as minimums. Central Africa has not yet been validated separately.</p>
+      <p><strong>Reading the numbers.</strong> Selections marked 100 m are counted pixel by pixel from the original maps; those marked <span class="ckm">2 km</span> use a summary grid (regional totals within 0.5%, single cells ±2%). The radar misses roughly 40% of flooded forest under dense canopy (South America validation), so treat areas as minimums. Central Africa has not yet been validated separately.</p>
       <p><strong>Trend</strong> is the Theil–Sen slope of yearly means, with a Mann–Kendall test (p &lt; 0.05 means the direction is unlikely to be chance). <strong>Gap-filled</strong> is the share of flooded area that was filled in from neighbouring dates or a hydrological proxy rather than seen directly.</p>
       <p>Source: Rosenqvist et al. (2026), <a href="https://doi.org/10.5281/zenodo.22981938" target="_blank" rel="noopener">doi:10.5281/zenodo.22981938</a>, CC-BY 4.0. ALOS-2 data © JAXA/EORC. Borders: Natural Earth.</p>
     </div>
